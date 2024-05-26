@@ -1,0 +1,125 @@
+edition: 3.0.0
+name: huggingface-app
+# access是当前应用所需要的密钥信息配置：
+# 密钥配置请参见：https://www.serverless-devs.com/serverless-devs/command/config
+# 密钥使用请参见：https://www.serverless-devs.com/serverless-devs/tool
+access: undefined
+
+vars: # 全局变量
+  region: cn-hangzhou
+  version: fc-deploy-common-v17.3.3
+  name: huggingface-llama3-8b-lawyer
+  role: acs:ram::1751655171269651:role/aliyunfcdefaultrole
+  imageUrl: "registry.cn-hangzhou.aliyuncs.com/aliyun-fc/huggingface:transformers-v1"
+  gpuInstanceType: fc.gpu.tesla.1
+  gpuMemorySize: 16384
+  memorySize: 32768
+  modelID: StevenChen16/llama3-8b-Lawyer
+  modelTask: text-generation
+  modelAccessToken: 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
+
+resources:
+  model_app_func:
+    component: 'fc3'
+    props:
+      region: ${vars.region}
+      role: ${vars.role}
+      functionName: ${vars.name}-model-app
+      description: Deploy HuggingFace applications of model
+      handler: not-used
+      timeout: 1800
+      memorySize: ${vars.memorySize}
+      cpu: 2
+      diskSize: 10240
+      gpuConfig:
+        gpuMemorySize: ${vars.gpuMemorySize}
+        gpuType: ${vars.gpuInstanceType}
+      instanceConcurrency: 1
+      runtime: custom-container
+      initializer: 'true'
+      initializationTimeout: 300
+      internetAccess: true
+      vpcConfig: auto
+      nasConfig: auto
+      customContainerConfig:
+        image: ${vars.imageUrl}
+        port: 8000
+      environmentVariables:
+        MODEL_ID: ${vars.modelID}
+        HUGGING_FACE_HUB_TOKEN: ${vars.modelAccessToken}
+        MODEL_TASK: ${vars.modelTask}
+        HF_HOME: /mnt/${vars.name}-model-app/hf
+        PYTHONPATH: /docker:/mnt/${vars.name}-model-app/python
+        HF_ENDPOINT: "https://hf-mirror.com"
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          description: 'httpTriggerModel'
+          qualifier: LATEST
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods:
+              - GET
+              - POST
+              - PUT
+
+  model_download_func:
+    component: 'fc3'
+    actions:
+      complete-deploy:
+        - run: curl -X POST -H "Content-Type:application/json" -d '{}' ${resources.model_download_func.output.url.system_url}
+    props:
+      region: ${vars.region}
+      role: ${vars.role}
+      functionName: ${vars.name}-model-download
+      description: initialize model into nas storage
+      handler: index.handler
+      timeout: 86400
+      memorySize: 32768
+      cpu: 8
+      diskSize: 10240
+      instanceType: e1
+      instanceConcurrency: 1
+      runtime: custom-container
+      initializer: 'true'
+      initializationTimeout: 300
+      internetAccess: true
+      vpcConfig: ${resources.model_app_func.output.vpcConfig}
+      nasConfig: ${resources.model_app_func.output.nasConfig}
+      customContainerConfig:
+        image: ${vars.imageUrl}
+        port: 8000
+      environmentVariables:
+        MODEL_ID: ${vars.modelID}
+        HUGGING_FACE_HUB_TOKEN: ${vars.modelAccessToken}
+        HF_HOME: /mnt/${vars.name}-model-app/hf
+        MODEL_TASK: ${vars.modelTask}
+        PYTHONPATH: /docker:/mnt/${vars.name}-model-app/python
+        HF_ENDPOINT: "https://hf-mirror.com"
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          description: 'httpTriggerModel'
+          qualifier: LATEST
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods:
+              - POST
+
+  custom-domain:
+    component: fc3-domain
+    props: #  组件的属性值
+      region: ${vars.region}
+      domainName: auto
+      protocol: HTTP
+      routeConfig:
+        routes:
+          - functionName: ${resources.model_app_func.props.functionName}
+            methods:
+              - GET
+              - POST
+              - PUT
+            path: /*
+            qualifier: LATEST
