@@ -1,0 +1,7 @@
+flask
+flask-cors
+git+https://github.com/hiyouga/LLaMA-Factory.git
+git+https://github.com/unslothai/unsloth.git
+bitsandbytes==0.43.1
+torch==2.0.1
+transformers==4.37.2
